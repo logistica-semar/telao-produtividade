@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>dashboard-produtividade</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{background:#050B18;color:#EAF1FB;font-family:Inter,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+    display:flex;align-items:center;justify-content:center;padding:48px 24px}
+  .aurora{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+  .aurora span{position:absolute;display:block;border-radius:50%;filter:blur(90px);opacity:.5}
+  .b1{width:46vw;height:46vw;top:-18vh;left:-8vw;background:radial-gradient(circle,#033E8C,transparent 68%);animation:drift 22s ease-in-out infinite alternate}
+  .b2{width:42vw;height:42vw;bottom:-22vh;right:-12vw;background:radial-gradient(circle,#0650AF,transparent 68%);animation:drift 28s ease-in-out infinite alternate-reverse}
+  @keyframes drift{0%{transform:translate3d(0,0,0)}100%{transform:translate3d(5%,-6%,0)}}
+  @keyframes rise{0%{opacity:0;transform:translate3d(0,22px,0)}100%{opacity:1;transform:none}}
+  main{position:relative;width:100%;max-width:1080px}
+  header{margin-bottom:40px;animation:rise .7s cubic-bezier(.22,1,.36,1) both}
+  .selo{display:inline-flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.14em;
+    text-transform:uppercase;color:#93A4C0;margin-bottom:14px}
+  .selo i{width:8px;height:8px;border-radius:50%;background:#4D97F5;font-style:normal}
+  h1{margin:0;font-size:clamp(30px,5vw,52px);letter-spacing:-.02em;line-height:1.05}
+  .grade{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+  .cartao{position:relative;display:block;padding:26px;border-radius:18px;text-decoration:none;color:inherit;
+    background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.10);overflow:hidden;
+    animation:rise .7s cubic-bezier(.22,1,.36,1) both;
+    transition:transform .25s cubic-bezier(.22,1,.36,1),border-color .25s ease,background .25s ease}
+  .cartao:hover{background:rgba(255,255,255,.08);border-color:rgba(77,151,245,.55);transform:translateY(-4px)}
+  .cartao h2{margin:0 0 6px;font-size:19px;letter-spacing:-.01em}
+  .cartao p{margin:0;font-size:13px;color:#93A4C0}
+  .marca{position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,#0A5FD1,#8FBEFB)}
+  .seta{position:absolute;right:22px;top:26px;color:#93A4C0;font-size:18px;transition:transform .25s ease,color .25s ease}
+  .cartao:hover .seta{color:#EAF1FB;transform:translateX(4px)}
+  footer{margin-top:40px;font-size:12px;color:#6C7E9B}
+  footer b{color:#93A4C0;font-weight:600}
+  @media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}}
+</style>
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"><span class="b1"></span><span class="b2"></span></div>
+  <main>
+  <header>
+    <div class="selo"><i></i> Painéis disponíveis</div>
+    <h1>dashboard-produtividade</h1>
+  </header>
+  <div class="grade">
+    <a class="cartao" href="produtividade_armazem.html" style="animation-delay:0ms">
+      <span class="marca"></span>
+      <h2>Produtividade - Armazém</h2>
+      <p>7 páginas &middot; 28min</p>
+      <span class="seta">&#8594;</span>
+    </a>
+    <a class="cartao" href="produtividade_cross_docking.html" style="animation-delay:70ms">
+      <span class="marca"></span>
+      <h2>Produtividade - Cross Docking</h2>
+      <p>6 páginas &middot; 24min</p>
+      <span class="seta">&#8594;</span>
+    </a>
+    <a class="cartao" href="produtividade_flv.html" style="animation-delay:140ms">
+      <span class="marca"></span>
+      <h2>Produtividade - FLV</h2>
+      <p>5 páginas &middot; 20min</p>
+      <span class="seta">&#8594;</span>
+    </a>
+  </div>
+  <footer>Gerado com <b>Revezo</b></footer>
+  </main>
+</body>
+</html>
