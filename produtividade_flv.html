@@ -11,8 +11,11 @@
     font-family:Inter,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
   body.repouso{cursor:none}
   #palco{position:fixed;inset:0;overflow:hidden}
-  .moldura{position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;visibility:hidden}
-  .moldura.ativa{visibility:visible}
+  /* Empilhados por z-index, nunca escondidos. Navegador de TV congela ou
+     descarta o conteudo de um iframe com visibility:hidden, e ele reaparece
+     em branco. O de cima e opaco e cobre o de baixo. */
+  .moldura{position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;background:#000;z-index:1}
+  .moldura.ativa{z-index:2}
   .moldura iframe{position:absolute;left:0;top:0;width:100%;border:0;display:block}
   /* Botão sempre visível para abrir o menu, inclusive com controle de TV. */
   #gatilho{position:fixed;left:22px;bottom:22px;z-index:12;width:52px;height:52px;
@@ -78,6 +81,7 @@
 var SEQUENCIA = [{"url":"https://app.powerbi.com/view?r=eyJrIjoiNDI5MGZiY2EtYjMyNC00NWE2LTk0OGMtMjFmMTFlMGQ2Yzc5IiwidCI6IjhmYzk2YTgyLTkzNGYtNGFjMC05OWMwLWFjMmZkZDExODJhOCJ9&pageName=4d7c0aca23ac5ae3b32b","titulo":"F-1","relatorio":"Produtividade - FLV","segundos":240},{"url":"https://app.powerbi.com/view?r=eyJrIjoiNDI5MGZiY2EtYjMyNC00NWE2LTk0OGMtMjFmMTFlMGQ2Yzc5IiwidCI6IjhmYzk2YTgyLTkzNGYtNGFjMC05OWMwLWFjMmZkZDExODJhOCJ9&pageName=65f44c27a3ac3027ee6a","titulo":"F-2","relatorio":"Produtividade - FLV","segundos":240},{"url":"https://app.powerbi.com/view?r=eyJrIjoiNDI5MGZiY2EtYjMyNC00NWE2LTk0OGMtMjFmMTFlMGQ2Yzc5IiwidCI6IjhmYzk2YTgyLTkzNGYtNGFjMC05OWMwLWFjMmZkZDExODJhOCJ9&pageName=4d7d4d5e0eebac9b2342","titulo":"F-5","relatorio":"Produtividade - FLV","segundos":240},{"url":"https://app.powerbi.com/view?r=eyJrIjoiNDI5MGZiY2EtYjMyNC00NWE2LTk0OGMtMjFmMTFlMGQ2Yzc5IiwidCI6IjhmYzk2YTgyLTkzNGYtNGFjMC05OWMwLWFjMmZkZDExODJhOCJ9&pageName=2f7a8c5be04e6a8ba64d","titulo":"F-6","relatorio":"Produtividade - FLV","segundos":240},{"url":"https://app.powerbi.com/view?r=eyJrIjoiNDI5MGZiY2EtYjMyNC00NWE2LTk0OGMtMjFmMTFlMGQ2Yzc5IiwidCI6IjhmYzk2YTgyLTkzNGYtNGFjMC05OWMwLWFjMmZkZDExODJhOCJ9&pageName=75fd8f082127e62adb56","titulo":"F-7","relatorio":"Produtividade - FLV","segundos":240}];
 var MINUTOS_ATUALIZACAO = 30;
 var RECORTAR_BARRA = true;
+var SEGUNDOS_PREPARO = 45;
 (function () {
   if (!SEQUENCIA.length) { document.body.innerHTML = "<p style=\"color:#fff;font:16px system-ui;padding:24px\">Nenhuma página selecionada.</p>"; return; }
 
@@ -90,108 +94,153 @@ var RECORTAR_BARRA = true;
   var INTERVALO_RECARGA = MINUTOS_ATUALIZACAO * 60 * 1000;
   var ESPERA_MENU = 60000;
   var ALTURA_BARRA_PBI = 56;
+  var ESPERA_QUADRO = 25000;
+  var TOTAL = SEQUENCIA.length;
 
-  var atual = 0, pausado = false, restante = 0;
-  var fecharMenu = null, esconderCursor = null, preparoProxima = null, esperaQuadro = null;
-  var ESPERA_QUADRO = 20000;
+  var atual = 0, ativo = 0, pausado = false, restante = 0;
+  var preparada = false, aguardando = -1, tentativa = 0;
+  var fecharMenu = null, esconderCursor = null, esperaQuadro = null;
 
-  var molduras = SEQUENCIA.map(function (item, indice) {
-    var moldura = document.createElement("div");
-    moldura.className = "moldura";
-    var quadro = document.createElement("iframe");
-    quadro.setAttribute("allowfullscreen", "true");
-    quadro.setAttribute("frameborder", "0");
-    moldura.appendChild(quadro);
-    palco.appendChild(moldura);
-    var registro = { no: moldura, quadro: quadro, carregadoEm: 0, pronto: false, indice: indice };
-    quadro.addEventListener("load", function () {
-      // Chegou: se é a página que está sendo esperada, entra em cena agora.
-      if (atual === indice) revelar(registro);
-      else registro.pronto = true;
-    });
-    return registro;
-  });
+  /* Dois quadros, reaproveitados, e nunca mais que isso.
+     Um relatório do Power BI embarcado é uma aplicação inteira: cada iframe
+     aberto custa memória de verdade. Guardando um quadro por página, o telão
+     terminava a primeira volta com sete instâncias vivas ao mesmo tempo — no
+     computador sobra memória e ninguém nota, mas o navegador da TV tem teto
+     por aba e mata o processo. Aqui só existem dois: o que está em cena e o
+     que está sendo preparado. Quem sai de cena é destruído na hora. */
+  var slots = [criarSlot(), criarSlot()];
 
-  /* Um quadro de cada vez. Abrindo todas as páginas juntas, o Power BI recebe
-     várias sessões simultâneas do mesmo relatório publicado, e nesse aperto
-     costuma devolver a página inicial no lugar da que o pageName pediu: o
-     telão passa a girar mostrando sempre a mesma página. Carregado sob
-     demanda, cada quadro pede a sua página sozinho. */
-  function carregar(moldura) {
-    if (moldura.carregadoEm) return;
-    moldura.carregadoEm = Date.now();
-    moldura.quadro.src = SEQUENCIA[moldura.indice].url;
+  function criarSlot() {
+    var no = document.createElement("div");
+    no.className = "moldura";
+    palco.appendChild(no);
+    return { no: no, quadro: null, pagina: -1, pronto: false, token: 0, carregadoEm: 0 };
   }
 
-  function dimensionar() {
+  function alturaQuadro() {
     // Navegador de TV e modo quiosque às vezes reportam 0 no primeiro quadro;
     // sem a reserva os iframes nasceriam com altura zero e ficariam assim.
     var visivel = window.innerHeight || document.documentElement.clientHeight || 720;
-    var altura = RECORTAR_BARRA ? (visivel + ALTURA_BARRA_PBI) : visivel;
-    molduras.forEach(function (m) { m.quadro.style.height = altura + "px"; });
+    return RECORTAR_BARRA ? (visivel + ALTURA_BARRA_PBI) : visivel;
   }
-  dimensionar();
+
+  function dimensionar() {
+    var altura = alturaQuadro() + "px";
+    slots.forEach(function (s) { if (s.quadro) s.quadro.style.height = altura; });
+  }
   window.addEventListener("resize", dimensionar);
 
-  function recarregar(moldura) {
-    moldura.pronto = false;
-    moldura.quadro.src = SEQUENCIA[moldura.indice].url + "&_rvz=" + Date.now();
-    moldura.carregadoEm = Date.now();
+  function montarUrl(pagina) {
+    // Cada entrada em cena é uma carga nova, então o dado nunca envelhece:
+    // é isto que substitui a antiga recarga agendada.
+    var url = SEQUENCIA[pagina].url;
+    return url + (url.indexOf("?") === -1 ? "?" : "&") + "_rvz=" + Date.now();
+  }
+
+  /* Descarrega de verdade: about:blank primeiro para o Power BI soltar o que
+     está segurando, e só então o elemento sai do DOM. Trocar apenas o src
+     deixaria a página anterior viva na memória do navegador. */
+  function esvaziar(slot) {
+    slot.token++;
+    slot.pagina = -1;
+    slot.pronto = false;
+    slot.carregadoEm = 0;
+    if (slot.quadro) {
+      try { slot.quadro.src = "about:blank"; } catch (e) {}
+      if (slot.quadro.parentNode) slot.quadro.parentNode.removeChild(slot.quadro);
+      slot.quadro = null;
+    }
+  }
+
+  function ocupar(indice, pagina) {
+    var slot = slots[indice];
+    esvaziar(slot);
+    var meu = slot.token;
+
+    var quadro = document.createElement("iframe");
+    quadro.setAttribute("allowfullscreen", "true");
+    quadro.setAttribute("frameborder", "0");
+    quadro.style.height = alturaQuadro() + "px";
+    quadro.addEventListener("load", function () {
+      // Uma carga abandonada (o usuário mudou de ideia no meio) não pode
+      // marcar como pronta a página que ocupou o slot depois dela.
+      if (slot.token !== meu) return;
+      slot.pronto = true;
+      if (aguardando === indice) revelar(indice);
+    });
+
+    slot.pagina = pagina;
+    slot.carregadoEm = Date.now();
+    quadro.src = montarUrl(pagina);
+    slot.no.appendChild(quadro);
+    slot.quadro = quadro;
   }
 
   /* Troca o que está em cena e começa a contar o tempo desta página a partir
      de agora: o relógio só anda com a página de fato à vista. */
-  function revelar(moldura) {
+  function revelar(indice) {
     clearTimeout(esperaQuadro);
-    moldura.pronto = true;
-    molduras.forEach(function (m) { m.no.classList.toggle("ativa", m === moldura); });
-    restante = SEQUENCIA[moldura.indice].segundos;
+    aguardando = -1;
+    tentativa = 0;
+    ativo = indice;
+    atual = slots[indice].pagina;
+    // Marcar como pronta mesmo sem load garante que o rodízio continue: um
+    // relatório que nunca responde atrasa uma página, não trava o telão.
+    slots[indice].pronto = true;
+    slots.forEach(function (s, k) { s.no.classList.toggle("ativa", k === indice); });
+    esvaziar(slots[1 - indice]);
+    restante = SEQUENCIA[atual].segundos;
+    preparada = false;
+    pintarRotulo();
     pintarContador();
   }
 
-  function mostrar(indice) {
-    var anterior = molduras[atual];
-    atual = (indice + molduras.length) % molduras.length;
-    var alvo = molduras[atual];
-    carregar(alvo);
+  function armarEspera(indice, pagina) {
+    clearTimeout(esperaQuadro);
+    esperaQuadro = setTimeout(function () {
+      if (aguardando !== indice) return;
+      if (slots[indice].pronto) { revelar(indice); return; }
+      if (tentativa < 1) {
+        // Uma segunda tentativa cobre a carga que morreu no meio do caminho,
+        // que numa TV ligada por semanas acontece.
+        tentativa++;
+        ocupar(indice, pagina);
+        armarEspera(indice, pagina);
+        return;
+      }
+      revelar(indice);
+    }, ESPERA_QUADRO);
+  }
+
+  function ir(pagina) {
+    pagina = ((pagina % TOTAL) + TOTAL) % TOTAL;
+    var livre = 1 - ativo;
+    var slot = slots[livre];
 
     // O rótulo troca na hora, mesmo que a página ainda esteja vindo: quem
     // apertou o botão precisa ver que o comando foi aceito.
+    rotuloTitulo.textContent = SEQUENCIA[pagina].titulo;
+    rotuloFonte.textContent = SEQUENCIA[pagina].relatorio || "";
+
+    if (slot.pagina === pagina && slot.pronto) { revelar(livre); return; }
+
+    /* Ainda carregando. Trocar agora deixaria a tela em branco até o Power BI
+       responder, e de fora isso parece um botão que não funcionou. A página
+       atual fica em cena até a próxima estar pronta. */
+    if (slot.pagina !== pagina) ocupar(livre, pagina);
+    aguardando = livre;
+    pintarContador();
+    armarEspera(livre, pagina);
+  }
+
+  function pintarRotulo() {
     var item = SEQUENCIA[atual];
     rotuloTitulo.textContent = item.titulo;
     rotuloFonte.textContent = item.relatorio || "";
-
-    if (alvo.pronto) {
-      revelar(alvo);
-    } else {
-      /* Ainda carregando. Trocar agora deixaria a tela preta até o Power BI
-         responder, e de fora isso parece um botão que não funcionou. A página
-         atual fica em cena até a próxima estar pronta; o prazo abaixo é a rede
-         de segurança para o caso de o load nunca chegar. */
-      restante = item.segundos;
-      pintarContador();
-      clearTimeout(esperaQuadro);
-      esperaQuadro = setTimeout(function () {
-        if (atual === alvo.indice) revelar(alvo);
-      }, ESPERA_QUADRO);
-    }
-
-    // A próxima só começa a carregar depois que a de agora já pegou a rede,
-    // e entra em cena pronta, sem ninguém ver o carregamento.
-    clearTimeout(preparoProxima);
-    preparoProxima = setTimeout(function () {
-      carregar(molduras[(atual + 1) % molduras.length]);
-    }, 2500);
-
-    // A recarga acontece com o quadro já fora de vista: quando ele voltar a
-    // aparecer, os dados estão novos e ninguém viu o carregamento.
-    if (anterior && anterior.indice !== atual && Date.now() - anterior.carregadoEm >= INTERVALO_RECARGA) {
-      recarregar(anterior);
-    }
   }
 
   function pintarContador() {
-    if (!molduras[atual].pronto) { contador.textContent = "carregando…"; return; }
+    if (aguardando >= 0 || !slots[ativo].pronto) { contador.textContent = "carregando…"; return; }
     contador.textContent = pausado ? "pausado" : (restante + "s");
   }
 
@@ -201,16 +250,33 @@ var RECORTAR_BARRA = true;
     if (pausado) return;
     // Esperando um quadro entrar em cena: o relógio para, senão a rotação
     // passaria adiante por baixo de uma página que ninguém chegou a ver.
-    if (!molduras[atual].pronto) return;
+    if (aguardando >= 0 || !slots[ativo].pronto) return;
+
     restante--;
-    if (restante <= 0) { mostrar(atual + 1); return; }
+
+    /* A próxima entra em cena pronta, sem ninguém ver o carregamento. Só que
+       ela começa perto da troca, não logo no início: enquanto ela carrega há
+       dois relatórios vivos, e esse é o momento caro para a TV. Quanto menor
+       a janela, menor o pico de memória. Zero desliga o preparo e carrega só
+       na hora da troca — a página atual segura a tela enquanto isso. */
+    if (!preparada && TOTAL > 1 && SEGUNDOS_PREPARO > 0 && restante <= SEGUNDOS_PREPARO) {
+      preparada = true;
+      ocupar(1 - ativo, (atual + 1) % TOTAL);
+    }
+
+    if (restante <= 0) {
+      if (TOTAL === 1) {
+        // Com uma página só não existe "fora de vista": recarrega no outro
+        // quadro e troca quando estiver pronta, sem piscar.
+        if (Date.now() - slots[ativo].carregadoEm >= INTERVALO_RECARGA) ir(0);
+        else { restante = SEQUENCIA[0].segundos; pintarContador(); }
+        return;
+      }
+      ir(atual + 1);
+      return;
+    }
     pintarContador();
   }, 1000);
-
-  // Com uma página só não existe "fora de vista", então recarrega no lugar.
-  if (molduras.length === 1) {
-    setInterval(function () { recarregar(molduras[0]); }, INTERVALO_RECARGA);
-  }
 
   // O menu abre por botão e fica aberto. Só se fecha sozinho depois de um
   // minuto sem ninguém mexer, para não sumir no meio de um clique de controle.
@@ -250,8 +316,8 @@ var RECORTAR_BARRA = true;
   barra.addEventListener("click", function (evento) {
     var acao = evento.target.getAttribute("data-acao");
     if (!acao) return;
-    if (acao === "anterior") mostrar(atual - 1);
-    else if (acao === "proximo") mostrar(atual + 1);
+    if (acao === "anterior") ir(atual - 1);
+    else if (acao === "proximo") ir(atual + 1);
     else if (acao === "tela-cheia") telaCheia();
     else if (acao === "pausar") { pausado = !pausado; pintarContador(); }
     else if (acao === "fechar") { encerrarMenu(); return; }
@@ -259,8 +325,8 @@ var RECORTAR_BARRA = true;
   });
 
   document.addEventListener("keydown", function (evento) {
-    if (evento.key === "ArrowRight") { mostrar(atual + 1); abrirMenu(); }
-    else if (evento.key === "ArrowLeft") { mostrar(atual - 1); abrirMenu(); }
+    if (evento.key === "ArrowRight") { ir(atual + 1); abrirMenu(); }
+    else if (evento.key === "ArrowLeft") { ir(atual - 1); abrirMenu(); }
     else if (evento.key === " ") { evento.preventDefault(); pausado = !pausado; pintarContador(); abrirMenu(); }
     else if (evento.key === "f" || evento.key === "F") telaCheia();
     else if (evento.key === "Escape") encerrarMenu();
@@ -274,7 +340,13 @@ var RECORTAR_BARRA = true;
     esconderCursor = setTimeout(function () { document.body.classList.add("repouso"); }, 3000);
   }, { passive: true });
 
-  mostrar(0);
+  atual = 0;
+  ativo = 0;
+  aguardando = 0;
+  ocupar(0, 0);
+  pintarRotulo();
+  pintarContador();
+  armarEspera(0, 0);
   esconderCursor = setTimeout(function () { document.body.classList.add("repouso"); }, 3000);
 })();
 </script>
